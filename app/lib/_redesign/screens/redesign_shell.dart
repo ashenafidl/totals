@@ -5,22 +5,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:totals/_redesign/theme/app_colors.dart';
-import 'package:totals/_redesign/theme/app_icons.dart';
-import 'package:totals/data/all_banks_from_assets.dart';
-import 'package:totals/models/account.dart';
-import 'package:totals/models/bank.dart';
-import 'package:totals/_redesign/screens/home_page.dart';
-import 'package:totals/_redesign/screens/lock_screen.dart';
+import 'package:totals/_redesign/navigation/navigation_destination.dart';
 import 'package:totals/_redesign/screens/account_reparse_result_page.dart';
-import 'package:totals/_redesign/screens/money/money_page.dart';
 import 'package:totals/_redesign/screens/budget_page.dart';
+import 'package:totals/_redesign/screens/data_sync/data_sync_home_page.dart';
+import 'package:totals/_redesign/screens/home_page.dart';
+import 'package:totals/_redesign/screens/loans_page.dart';
+import 'package:totals/_redesign/screens/lock_screen.dart';
+import 'package:totals/_redesign/screens/money/money_page.dart';
 import 'package:totals/_redesign/screens/settings_page.dart';
 import 'package:totals/_redesign/screens/shared_expenses_page.dart';
+import 'package:totals/_redesign/screens/spending_map_page.dart';
+import 'package:totals/_redesign/theme/app_colors.dart';
+import 'package:totals/_redesign/theme/app_icons.dart';
 import 'package:totals/_redesign/widgets/redesign_bottom_nav.dart';
-import 'package:totals/screens/accounts_page.dart';
-import 'package:totals/screens/verify_payments_page.dart';
+import 'package:totals/_redesign/widgets/transaction_details_sheet.dart';
 import 'package:totals/constants/cash_constants.dart';
+import 'package:totals/data/all_banks_from_assets.dart';
+import 'package:totals/l10n/app_localizations.dart';
+import 'package:totals/models/account.dart';
+import 'package:totals/models/bank.dart';
 import 'package:totals/models/profile.dart';
 import 'package:totals/models/transaction.dart';
 import 'package:totals/models/user_account.dart';
@@ -29,30 +33,33 @@ import 'package:totals/providers/transaction_provider.dart';
 import 'package:totals/repositories/account_repository.dart';
 import 'package:totals/repositories/profile_repository.dart';
 import 'package:totals/repositories/user_account_repository.dart';
+import 'package:totals/screens/accounts_page.dart';
+import 'package:totals/screens/failed_parses_page.dart';
+import 'package:totals/screens/verify_payments_page.dart';
+import 'package:totals/screens/web_page.dart';
 import 'package:totals/services/account_ownership_service.dart';
-import 'package:totals/services/app_update_service.dart';
 import 'package:totals/services/account_reparse_result_service.dart';
-import 'package:totals/services/bank_detection_startup_service.dart';
+import 'package:totals/services/advanced_settings_service.dart';
+import 'package:totals/services/app_update_service.dart';
+import 'package:totals/services/background_refresh_signal_service.dart';
+import 'package:totals/services/background_sync_signal_service.dart';
 import 'package:totals/services/bank_config_service.dart';
-import 'package:totals/services/notification_service.dart';
+import 'package:totals/services/bank_detection_startup_service.dart';
+import 'package:totals/services/connectivity_service.dart';
+import 'package:totals/services/data_sync/sync_service.dart';
 import 'package:totals/services/notification_intent_bus.dart';
+import 'package:totals/services/notification_service.dart';
 import 'package:totals/services/shared_expense_notification_coordinator.dart';
 import 'package:totals/services/shared_expense_push_notification_service.dart';
 import 'package:totals/services/shared_expense_vault_service.dart';
-import 'package:totals/services/background_refresh_signal_service.dart';
-import 'package:totals/services/background_sync_signal_service.dart';
-import 'package:totals/services/connectivity_service.dart';
-import 'package:totals/services/data_sync/sync_service.dart';
 import 'package:totals/services/sms_config_service.dart';
 import 'package:totals/services/sms_service.dart';
 import 'package:totals/services/widget_launch_intent_service.dart';
 import 'package:totals/utils/account_share_payload.dart';
 import 'package:totals/utils/account_sort.dart';
 import 'package:totals/utils/text_utils.dart';
-import 'package:totals/_redesign/widgets/transaction_details_sheet.dart';
 import 'package:totals/widgets/account_share_qr_code.dart';
 import 'package:totals/widgets/add_cash_transaction_sheet.dart';
-import 'package:totals/l10n/app_localizations.dart';
 import 'package:totals/widgets/sms_permission_privacy_dialog.dart';
 
 class RedesignShell extends StatefulWidget {
@@ -64,11 +71,6 @@ class RedesignShell extends StatefulWidget {
 
 class RedesignShellState extends State<RedesignShell>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  static const int _homeIndex = 0;
-  static const int _moneyIndex = 1;
-  static const int _budgetIndex = 2;
-  static const int _sharedIndex = 3;
-  static const int _settingsIndex = 4;
   final GlobalKey<RedesignMoneyPageState> _moneyPageKey =
       GlobalKey<RedesignMoneyPageState>();
   final GlobalKey<RedesignBudgetPageState> _budgetPageKey =
@@ -79,12 +81,13 @@ class RedesignShellState extends State<RedesignShell>
       SharedExpenseFabController();
   final ValueNotifier<bool> _homeToolsMenuOpenNotifier =
       ValueNotifier<bool>(false);
-  final PageController _pageController =
-      PageController(initialPage: _homeIndex);
+  final PageController _pageController = PageController(initialPage: 0);
+  NavigationLayout _navigationLayout =
+      AdvancedSettingsService.instance.navigationLayout.value;
   late final AnimationController _directPageTransitionController;
   int _directPageTransitionDirection = 1;
   DateTime? _lastProfileTabTapAt;
-  int _currentIndex = _homeIndex;
+  NavigationDestinationId _currentDestinationId = NavigationDestinationId.home;
   int? _activeProfileId;
   StreamSubscription<WidgetLaunchTarget>? _widgetLaunchIntentSub;
   StreamSubscription<NotificationIntent>? _notificationIntentSub;
@@ -111,6 +114,9 @@ class RedesignShellState extends State<RedesignShell>
   @override
   void initState() {
     super.initState();
+    AdvancedSettingsService.instance.navigationLayout
+        .addListener(_handleNavigationLayoutChanged);
+    unawaited(AdvancedSettingsService.instance.ensureLoaded());
     _directPageTransitionController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 250),
@@ -222,9 +228,39 @@ class RedesignShellState extends State<RedesignShell>
     });
   }
 
+  int _indexFor(NavigationDestinationId id) {
+    final index = _navigationLayout.bottomBar.indexOf(id);
+    return index < 0 ? 0 : index;
+  }
+
+  bool get _isCurrentShared =>
+      _currentDestinationId == NavigationDestinationId.shared;
+
+  void _handleNavigationLayoutChanged() {
+    if (!mounted) {
+      _navigationLayout =
+          AdvancedSettingsService.instance.navigationLayout.value;
+      return;
+    }
+    final updated = AdvancedSettingsService.instance.navigationLayout.value;
+    final preserved = updated.resolveCurrentDestination(_currentDestinationId);
+    final newIndex = updated.bottomBar.indexOf(preserved);
+    setState(() {
+      _navigationLayout = updated;
+      _currentDestinationId = preserved;
+    });
+    _homeToolsMenuOpenNotifier.value = false;
+    if (_pageController.hasClients) _pageController.jumpToPage(newIndex);
+    if (preserved == NavigationDestinationId.shared) {
+      _sharedExpenseNavigationController.refresh();
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AdvancedSettingsService.instance.navigationLayout
+        .removeListener(_handleNavigationLayoutChanged);
     _widgetLaunchIntentSub?.cancel();
     _notificationIntentSub?.cancel();
     _reparseResultSub?.cancel();
@@ -358,8 +394,8 @@ class RedesignShellState extends State<RedesignShell>
   Future<void> _openTransactionFromNotification(String reference) async {
     if (!mounted) return;
 
-    if (_currentIndex != _homeIndex) {
-      _onTabSelected(_homeIndex);
+    if (_currentDestinationId != NavigationDestinationId.home) {
+      _onTabSelected(NavigationDestinationId.home);
     }
 
     final provider = Provider.of<TransactionProvider>(context, listen: false);
@@ -442,12 +478,19 @@ class RedesignShellState extends State<RedesignShell>
     _homeToolsMenuOpenNotifier.value = false;
     setState(() {
       _isAuthenticated = false;
-      _currentIndex = _homeIndex;
+      _currentDestinationId = NavigationDestinationId.home;
     });
   }
 
   void openMoneyAccountsPage() {
-    _onTabSelected(_moneyIndex);
+    if (!_navigationLayout.bottomBar.contains(NavigationDestinationId.money)) {
+      _openDestinationFromTools(
+        NavigationDestinationId.money,
+        openAccountsTab: true,
+      );
+      return;
+    }
+    _onTabSelected(NavigationDestinationId.money);
 
     void openAccountsWhenReady([int attempts = 0]) {
       final moneyState = _moneyPageKey.currentState;
@@ -466,7 +509,7 @@ class RedesignShellState extends State<RedesignShell>
   }
 
   void openSettingsPage() {
-    _onTabSelected(_settingsIndex);
+    _onTabSelected(NavigationDestinationId.you);
   }
 
   Future<void> _loadActiveProfileId() async {
@@ -477,10 +520,10 @@ class RedesignShellState extends State<RedesignShell>
     });
   }
 
-  void _onTabSelected(int index) {
+  void _onTabSelected(NavigationDestinationId destinationId) {
     _homeToolsMenuOpenNotifier.value = false;
 
-    if (index == _settingsIndex) {
+    if (destinationId == NavigationDestinationId.you) {
       final now = DateTime.now();
       final isDoubleTap = _lastProfileTabTapAt != null &&
           now.difference(_lastProfileTabTapAt!) <=
@@ -495,11 +538,13 @@ class RedesignShellState extends State<RedesignShell>
       _lastProfileTabTapAt = null;
     }
 
-    final previousIndex = _currentIndex;
+    final previousDestinationId = _currentDestinationId;
+    final index = _indexFor(destinationId);
+    final previousIndex = _indexFor(previousDestinationId);
     if (previousIndex == index) return;
 
     setState(() {
-      _currentIndex = index;
+      _currentDestinationId = destinationId;
     });
 
     final pageDistance = (index - previousIndex).abs();
@@ -518,9 +563,105 @@ class RedesignShellState extends State<RedesignShell>
       _directPageTransitionController.forward(from: 0);
     }
 
-    if (index == _sharedIndex && previousIndex != _sharedIndex) {
+    if (destinationId == NavigationDestinationId.shared &&
+        previousDestinationId != NavigationDestinationId.shared) {
       _sharedExpenseNavigationController.refresh();
     }
+  }
+
+  void _openDestinationFromTools(
+    NavigationDestinationId id, {
+    bool openAccountsTab = false,
+  }) {
+    if (!mounted) return;
+    final destination = NavigationDestinations.get(id);
+    if (id != NavigationDestinationId.money &&
+        id != NavigationDestinationId.budget &&
+        id != NavigationDestinationId.shared) {
+      final page = _buildStandaloneDestination(id);
+      if (page == null) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => page),
+      );
+      return;
+    }
+    final hostedMoneyKey =
+        openAccountsTab ? GlobalKey<RedesignMoneyPageState>() : null;
+    final page = switch (id) {
+      NavigationDestinationId.money => RedesignMoneyPage(key: hostedMoneyKey),
+      NavigationDestinationId.budget => const RedesignBudgetPage(),
+      NavigationDestinationId.shared => RedesignSharedExpensesPage(
+          navigationController: _sharedExpenseNavigationController,
+          fabController: _sharedExpenseFabController,
+        ),
+      _ => null,
+    };
+    if (page == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => Scaffold(
+          appBar: AppBar(
+            leading: const BackButton(),
+            title: Text(destination.localizedLabel(routeContext)),
+          ),
+          body: page,
+          floatingActionButton: id == NavigationDestinationId.shared
+              ? _SharedExpensesShellFab(
+                  controller: _sharedExpenseFabController,
+                  visible: true,
+                )
+              : null,
+        ),
+      ),
+    );
+    if (openAccountsTab) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        hostedMoneyKey?.currentState?.openAccountsTab();
+      });
+    }
+  }
+
+  Widget? _buildStandaloneDestination(NavigationDestinationId id) =>
+      switch (id) {
+        NavigationDestinationId.quickAccounts => const AccountsPage(),
+        NavigationDestinationId.verifyPayments => const VerifyPaymentsPage(),
+        NavigationDestinationId.loans => const LoansPage(),
+        NavigationDestinationId.spendingMap => const SpendingMapPage(),
+        NavigationDestinationId.failedParsings => const FailedParsesPage(),
+        NavigationDestinationId.dataSync => const DataSyncHomePage(),
+        NavigationDestinationId.webDashboard => const WebPage(),
+        _ => null,
+      };
+
+  Widget _buildEmbeddedDestination(NavigationDestinationId id) {
+    final page = _buildStandaloneDestination(id);
+    if (page == null) return const SizedBox.shrink();
+    return Navigator(
+      key: ValueKey('destination-navigator-${id.name}'),
+      onGenerateRoute: (settings) => MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => PopScope(canPop: false, child: page),
+      ),
+    );
+  }
+
+  Widget _buildBottomBarPage(NavigationDestinationId id) {
+    return switch (id) {
+      NavigationDestinationId.home => RedesignHomePage(
+          toolsMenuOpenNotifier: _homeToolsMenuOpenNotifier,
+          onOpenDestination: _openDestinationFromTools,
+        ),
+      NavigationDestinationId.money => RedesignMoneyPage(key: _moneyPageKey),
+      NavigationDestinationId.budget => RedesignBudgetPage(key: _budgetPageKey),
+      NavigationDestinationId.shared => RedesignSharedExpensesPage(
+          navigationController: _sharedExpenseNavigationController,
+          fabController: _sharedExpenseFabController,
+        ),
+      NavigationDestinationId.you => RedesignSettingsPage(
+          key: ValueKey('settings-${_activeProfileId ?? 'none'}'),
+        ),
+      _ => _buildEmbeddedDestination(id),
+    };
   }
 
   Color _homeToolsOverlayColor(BuildContext context) {
@@ -597,7 +738,12 @@ class RedesignShellState extends State<RedesignShell>
 
     switch (target) {
       case WidgetLaunchTarget.budget:
-        _onTabSelected(_budgetIndex);
+        if (_navigationLayout.bottomBar
+            .contains(NavigationDestinationId.budget)) {
+          _onTabSelected(NavigationDestinationId.budget);
+        } else {
+          _openDestinationFromTools(NavigationDestinationId.budget);
+        }
         return;
       case WidgetLaunchTarget.addExpense:
         await _showShortcutCashTransactionSheet(isDebit: true);
@@ -718,8 +864,13 @@ class RedesignShellState extends State<RedesignShell>
 
   void _openSharedExpensesFromNotification(OpenSharedExpensesIntent intent) {
     if (!mounted) return;
-    if (_currentIndex != _sharedIndex) {
-      _onTabSelected(_sharedIndex);
+    if (_currentDestinationId != NavigationDestinationId.shared) {
+      if (_navigationLayout.bottomBar
+          .contains(NavigationDestinationId.shared)) {
+        _onTabSelected(NavigationDestinationId.shared);
+      } else {
+        _openDestinationFromTools(NavigationDestinationId.shared);
+      }
     }
     final groupId = intent.groupId?.trim();
     if (groupId == null || groupId.isEmpty || !intent.openActivities) return;
@@ -973,7 +1124,8 @@ class RedesignShellState extends State<RedesignShell>
       valueListenable: _homeToolsMenuOpenNotifier,
       builder: (context, isHomeToolsMenuOpen, child) {
         final showHomeToolsOverlay =
-            _currentIndex == _homeIndex && isHomeToolsMenuOpen;
+            _currentDestinationId == NavigationDestinationId.home &&
+                isHomeToolsMenuOpen;
         final overlayColor = _homeToolsOverlayColor(context);
         final topSafeHeight = MediaQuery.paddingOf(context).top;
 
@@ -989,19 +1141,20 @@ class RedesignShellState extends State<RedesignShell>
                 // ignore: deprecated_member_use
                 child: WillPopScope(
                   onWillPop: () async {
-                    if (_currentIndex == _budgetIndex) {
+                    if (_currentDestinationId ==
+                        NavigationDestinationId.budget) {
                       final handled =
                           _budgetPageKey.currentState?.handleSystemBack() ??
                               false;
                       if (handled) return false;
                     }
-                    if (_currentIndex == _sharedIndex) {
+                    if (_isCurrentShared) {
                       final handled =
                           _sharedExpenseNavigationController.handleSystemBack();
                       if (handled) return false;
                     }
-                    if (_currentIndex != _homeIndex) {
-                      _onTabSelected(_homeIndex);
+                    if (_currentDestinationId != NavigationDestinationId.home) {
+                      _onTabSelected(NavigationDestinationId.home);
                       return false;
                     }
                     return true;
@@ -1015,31 +1168,22 @@ class RedesignShellState extends State<RedesignShell>
                         physics: const PageScrollPhysics(),
                         onPageChanged: (index) {
                           _homeToolsMenuOpenNotifier.value = false;
-                          if (_currentIndex == index || !mounted) return;
+                          final destinationId =
+                              _navigationLayout.bottomBar[index];
+                          if (_currentDestinationId == destinationId ||
+                              !mounted) {
+                            return;
+                          }
                           setState(() {
-                            _currentIndex = index;
+                            _currentDestinationId = destinationId;
                           });
-                          if (index == _sharedIndex) {
+                          if (destinationId == NavigationDestinationId.shared) {
                             _sharedExpenseNavigationController.refresh();
                           }
                         },
-                        children: [
-                          RedesignHomePage(
-                            toolsMenuOpenNotifier: _homeToolsMenuOpenNotifier,
-                          ),
-                          RedesignMoneyPage(key: _moneyPageKey),
-                          RedesignBudgetPage(key: _budgetPageKey),
-                          RedesignSharedExpensesPage(
-                            navigationController:
-                                _sharedExpenseNavigationController,
-                            fabController: _sharedExpenseFabController,
-                          ),
-                          RedesignSettingsPage(
-                            key: ValueKey(
-                              'settings-${_activeProfileId ?? 'none'}',
-                            ),
-                          ),
-                        ],
+                        children: _navigationLayout.bottomBar
+                            .map(_buildBottomBarPage)
+                            .toList(growable: false),
                       ),
                       builder: (context, child) {
                         final progress = Curves.easeOutCubic.transform(
@@ -1066,12 +1210,13 @@ class RedesignShellState extends State<RedesignShell>
                         FloatingActionButtonLocation.endFloat,
                     floatingActionButton: _SharedExpensesShellFab(
                       controller: _sharedExpenseFabController,
-                      visible: _currentIndex == _sharedIndex,
+                      visible: _isCurrentShared,
                     ),
                     bottomNavigationBar: Stack(
                       children: [
                         RedesignBottomNav(
-                          currentIndex: _currentIndex,
+                          destinations: _navigationLayout.bottomBar,
+                          currentDestinationId: _currentDestinationId,
                           pageController: _pageController,
                           onTap: _onTabSelected,
                           onMoneyLongPress: _showQuickCashSheet,

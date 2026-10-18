@@ -2,20 +2,26 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:totals/_redesign/navigation/navigation_destination.dart';
+import 'package:totals/_redesign/screens/data_sync/data_sync_home_page.dart';
+import 'package:totals/_redesign/screens/loans_page.dart';
+import 'package:totals/_redesign/screens/redesign_shell.dart';
+import 'package:totals/_redesign/screens/spending_map_page.dart';
+import 'package:totals/_redesign/screens/todays_transactions_page.dart';
 import 'package:totals/_redesign/theme/app_colors.dart';
+import 'package:totals/_redesign/theme/app_icons.dart';
+import 'package:totals/_redesign/widgets/transaction_category_sheet.dart';
+import 'package:totals/_redesign/widgets/transaction_details_sheet.dart';
+import 'package:totals/_redesign/widgets/transaction_tile.dart';
 import 'package:totals/constants/cash_constants.dart';
+import 'package:totals/l10n/app_localizations.dart';
 import 'package:totals/models/summary_models.dart';
 import 'package:totals/models/transaction.dart';
-import 'package:totals/providers/transaction_provider.dart';
 import 'package:totals/providers/theme_provider.dart';
-import 'package:totals/theme/app_calendar_option.dart';
-import 'package:totals/_redesign/screens/data_sync/data_sync_home_page.dart';
-import 'package:totals/_redesign/screens/redesign_shell.dart';
-import 'package:totals/_redesign/screens/loans_page.dart';
-import 'package:totals/_redesign/screens/spending_map_page.dart';
+import 'package:totals/providers/transaction_provider.dart';
 import 'package:totals/screens/accounts_page.dart';
 import 'package:totals/screens/failed_parses_page.dart';
 import 'package:totals/screens/verify_payments_page.dart';
@@ -23,24 +29,21 @@ import 'package:totals/screens/web_page.dart';
 import 'package:totals/services/advanced_settings_service.dart';
 import 'package:totals/services/data_export_import_service.dart';
 import 'package:totals/services/sms_service.dart';
+import 'package:totals/theme/app_calendar_option.dart';
 import 'package:totals/utils/app_date_format.dart';
 import 'package:totals/utils/text_utils.dart';
 import 'package:totals/utils/transaction_amounts.dart';
-import 'package:totals/_redesign/widgets/transaction_category_sheet.dart';
-import 'package:totals/_redesign/screens/todays_transactions_page.dart';
-import 'package:totals/_redesign/widgets/transaction_details_sheet.dart';
-import 'package:totals/_redesign/widgets/transaction_tile.dart';
 import 'package:totals/widgets/add_cash_transaction_sheet.dart';
 import 'package:totals/widgets/sms_permission_privacy_dialog.dart';
-import 'package:totals/_redesign/theme/app_icons.dart';
-import 'package:totals/l10n/app_localizations.dart';
 
 class RedesignHomePage extends StatefulWidget {
   final ValueNotifier<bool>? toolsMenuOpenNotifier;
+  final ValueChanged<NavigationDestinationId>? onOpenDestination;
 
   const RedesignHomePage({
     super.key,
     this.toolsMenuOpenNotifier,
+    this.onOpenDestination,
   });
 
   @override
@@ -67,8 +70,8 @@ class _RedesignHomePageState extends State<RedesignHomePage>
   bool _isBootstrapping = true;
   bool _isImportingBackup = false;
   bool _isToolsMenuOpen = false;
-  Set<ToolsFabItem> _visibleToolsFabItems =
-      AdvancedSettingsService.defaultToolsFabItems;
+  NavigationLayout _navigationLayout =
+      AdvancedSettingsService.instance.navigationLayout.value;
 
   bool get _isSelecting => _selectedRefs.isNotEmpty;
 
@@ -100,11 +103,11 @@ class _RedesignHomePageState extends State<RedesignHomePage>
     setState(() => _isToolsMenuOpen = notifier.value);
   }
 
-  void _handleToolsFabItemsChanged() {
+  void _handleNavigationLayoutChanged() {
     if (!mounted) return;
     setState(() {
-      _visibleToolsFabItems =
-          AdvancedSettingsService.instance.toolsFabItems.value;
+      _navigationLayout =
+          AdvancedSettingsService.instance.navigationLayout.value;
     });
   }
 
@@ -244,10 +247,10 @@ class _RedesignHomePageState extends State<RedesignHomePage>
   void initState() {
     super.initState();
     widget.toolsMenuOpenNotifier?.addListener(_handleToolsMenuNotifierChanged);
-    AdvancedSettingsService.instance.toolsFabItems
-        .addListener(_handleToolsFabItemsChanged);
+    AdvancedSettingsService.instance.navigationLayout
+        .addListener(_handleNavigationLayoutChanged);
     AdvancedSettingsService.instance.ensureLoaded().then((_) {
-      _handleToolsFabItemsChanged();
+      _handleNavigationLayoutChanged();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = Provider.of<TransactionProvider>(context, listen: false);
@@ -274,8 +277,8 @@ class _RedesignHomePageState extends State<RedesignHomePage>
   void dispose() {
     widget.toolsMenuOpenNotifier
         ?.removeListener(_handleToolsMenuNotifierChanged);
-    AdvancedSettingsService.instance.toolsFabItems
-        .removeListener(_handleToolsFabItemsChanged);
+    AdvancedSettingsService.instance.navigationLayout
+        .removeListener(_handleNavigationLayoutChanged);
     super.dispose();
   }
 
@@ -520,22 +523,17 @@ class _RedesignHomePageState extends State<RedesignHomePage>
                     ),
                   ),
                 ),
-                Positioned(
-                  right: 20,
-                  bottom: 8,
-                  child: _HomeToolsFabMenu(
-                    isOpen: _isToolsMenuOpen,
-                    visibleItems: _visibleToolsFabItems,
-                    onOpenChanged: _setToolsMenuOpen,
-                    onWebDashboardTap: _openWebDashboard,
-                    onQuickAccountsTap: _openQuickAccountsPage,
-                    onVerifyPaymentsTap: _openVerifyPayments,
-                    onFailedParsingsTap: _openFailedParsings,
-                    onDataSyncTap: _openDataSync,
-                    onLoansTap: _openLoansPlaceholder,
-                    onSpendingMapTap: _openSpendingMap,
+                if (_navigationLayout.tools.isNotEmpty)
+                  Positioned(
+                    right: 20,
+                    bottom: 8,
+                    child: _HomeToolsFabMenu(
+                      isOpen: _isToolsMenuOpen,
+                      destinations: _navigationLayout.tools,
+                      onOpenChanged: _setToolsMenuOpen,
+                      onDestinationTap: _openMenuDestination,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -619,6 +617,44 @@ class _RedesignHomePageState extends State<RedesignHomePage>
         builder: (_) => const SpendingMapPage(),
       ),
     );
+  }
+
+  void _openMenuDestination(NavigationDestinationId id) {
+    final destination = NavigationDestinations.get(id);
+    if (destination.openKind == DestinationOpenKind.page) {
+      widget.onOpenDestination?.call(id);
+      return;
+    }
+    switch (id) {
+      case NavigationDestinationId.money:
+      case NavigationDestinationId.budget:
+      case NavigationDestinationId.shared:
+        return;
+      case NavigationDestinationId.quickAccounts:
+        _openQuickAccountsPage();
+        return;
+      case NavigationDestinationId.verifyPayments:
+        _openVerifyPayments();
+        return;
+      case NavigationDestinationId.loans:
+        _openLoansPlaceholder();
+        return;
+      case NavigationDestinationId.spendingMap:
+        _openSpendingMap();
+        return;
+      case NavigationDestinationId.failedParsings:
+        _openFailedParsings();
+        return;
+      case NavigationDestinationId.dataSync:
+        _openDataSync();
+        return;
+      case NavigationDestinationId.webDashboard:
+        _openWebDashboard();
+        return;
+      case NavigationDestinationId.home:
+      case NavigationDestinationId.you:
+        return;
+    }
   }
 
   Future<void> _importBackup(TransactionProvider provider) async {
@@ -1190,27 +1226,15 @@ String _formatDelta(double value) {
 
 class _HomeToolsFabMenu extends StatefulWidget {
   final bool isOpen;
-  final Set<ToolsFabItem> visibleItems;
+  final List<NavigationDestinationId> destinations;
   final ValueChanged<bool> onOpenChanged;
-  final VoidCallback onWebDashboardTap;
-  final VoidCallback onQuickAccountsTap;
-  final VoidCallback onVerifyPaymentsTap;
-  final VoidCallback onFailedParsingsTap;
-  final VoidCallback onDataSyncTap;
-  final VoidCallback onLoansTap;
-  final VoidCallback onSpendingMapTap;
+  final ValueChanged<NavigationDestinationId> onDestinationTap;
 
   const _HomeToolsFabMenu({
     required this.isOpen,
-    required this.visibleItems,
+    required this.destinations,
     required this.onOpenChanged,
-    required this.onWebDashboardTap,
-    required this.onQuickAccountsTap,
-    required this.onVerifyPaymentsTap,
-    required this.onFailedParsingsTap,
-    required this.onDataSyncTap,
-    required this.onLoansTap,
-    required this.onSpendingMapTap,
+    required this.onDestinationTap,
   });
 
   @override
@@ -1236,60 +1260,16 @@ class _HomeToolsFabMenuState extends State<_HomeToolsFabMenu> {
     const itemGap = 8.0;
     const menuGap = 8.0;
     const actionColor = AppColors.primaryLight;
-    final visibleItems = widget.visibleItems.isEmpty
-        ? AdvancedSettingsService.defaultToolsFabItems
-        : widget.visibleItems;
-    final actions = <_HomeToolsFabAction>[
-      _HomeToolsFabAction(
-        item: ToolsFabItem.quickAccounts,
-        icon: AppIcons.account_balance_outlined,
+    final actions = widget.destinations.map((id) {
+      final destination = NavigationDestinations.get(id);
+      return _HomeToolsFabAction(
+        id: id,
+        icon: destination.inactiveIcon,
         color: actionColor,
-        label: context.l10nText('Quick Accounts'),
-        onTap: widget.onQuickAccountsTap,
-      ),
-      _HomeToolsFabAction(
-        item: ToolsFabItem.verifyPayments,
-        icon: AppIcons.qr_code_scanner_rounded,
-        color: actionColor,
-        label: context.l10nText('Verify Payments'),
-        onTap: widget.onVerifyPaymentsTap,
-      ),
-      _HomeToolsFabAction(
-        item: ToolsFabItem.loans,
-        icon: AppIcons.debts,
-        color: actionColor,
-        label: context.l10nText('Loans'),
-        onTap: widget.onLoansTap,
-      ),
-      _HomeToolsFabAction(
-        item: ToolsFabItem.spendingMap,
-        icon: AppIcons.map_rounded,
-        color: actionColor,
-        label: context.l10nText('Spending Map'),
-        onTap: widget.onSpendingMapTap,
-      ),
-      _HomeToolsFabAction(
-        item: ToolsFabItem.failedParsings,
-        icon: AppIcons.sms_outlined,
-        color: actionColor,
-        label: context.l10nText('Failed Parsings'),
-        onTap: widget.onFailedParsingsTap,
-      ),
-      _HomeToolsFabAction(
-        item: ToolsFabItem.dataSync,
-        icon: AppIcons.cloud_download,
-        color: actionColor,
-        label: context.l10nText('Data Sync'),
-        onTap: widget.onDataSyncTap,
-      ),
-      _HomeToolsFabAction(
-        item: ToolsFabItem.webDashboard,
-        icon: AppIcons.dashboard_outlined,
-        color: actionColor,
-        label: context.l10nText('Web Dashboard'),
-        onTap: widget.onWebDashboardTap,
-      ),
-    ].where((action) => visibleItems.contains(action.item)).toList();
+        label: destination.localizedLabel(context),
+        onTap: () => widget.onDestinationTap(id),
+      );
+    }).toList(growable: false);
     final openHeight = fabSize +
         menuGap +
         actions.length * itemHeight +
@@ -1363,14 +1343,14 @@ class _HomeToolsFabMenuState extends State<_HomeToolsFabMenu> {
 }
 
 class _HomeToolsFabAction {
-  final ToolsFabItem item;
+  final NavigationDestinationId id;
   final IconData icon;
   final Color color;
   final String label;
   final VoidCallback? onTap;
 
   const _HomeToolsFabAction({
-    required this.item,
+    required this.id,
     required this.icon,
     required this.color,
     required this.label,
@@ -2919,8 +2899,7 @@ class _BalanceBreakdownSheetState extends State<_BalanceBreakdownSheet> {
     final flatItems = _showWeek ? _weekItems : _monthItems;
     final startBal = _showWeek ? _weekStartingBalance : _monthStartingBalance;
     final startDate = _showWeek ? _weekStartingDate : _monthStartingDate;
-    final transactionCount =
-        flatItems.where((entry) => entry is Transaction).length;
+    final transactionCount = flatItems.whereType<Transaction>().length;
     final currencyLabel = context.l10nText('ETB');
 
     return Container(

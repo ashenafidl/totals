@@ -1,23 +1,23 @@
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
+import 'package:totals/_redesign/navigation/navigation_destination.dart';
 import 'package:totals/_redesign/theme/app_colors.dart';
-import 'package:totals/_redesign/theme/app_icons.dart';
-import 'package:totals/l10n/app_localizations.dart';
 
 class RedesignBottomNav extends StatefulWidget {
-  static const int _tabCount = 5;
-
-  final int currentIndex;
+  final List<NavigationDestinationId> destinations;
+  final NavigationDestinationId currentDestinationId;
   final PageController pageController;
-  final ValueChanged<int> onTap;
+  final ValueChanged<NavigationDestinationId> onTap;
   final VoidCallback? onMoneyLongPress;
   final VoidCallback? onSharedLongPress;
   final ValueChanged<Rect>? onProfileLongPressAt;
 
   const RedesignBottomNav({
     super.key,
-    required this.currentIndex,
+    required this.destinations,
+    required this.currentDestinationId,
     required this.pageController,
     required this.onTap,
     this.onMoneyLongPress,
@@ -35,8 +35,14 @@ class _RedesignBottomNavState extends State<RedesignBottomNav>
   late Animation<double> _selectionAnimation;
   ValueNotifier<bool>? _pageScrollingNotifier;
 
-  double get _targetIndex =>
-      widget.currentIndex.clamp(0, RedesignBottomNav._tabCount - 1).toDouble();
+  int get _currentIndex => widget.destinations.indexOf(
+        widget.currentDestinationId,
+      );
+
+  double get _targetIndex {
+    final index = _currentIndex;
+    return (index < 0 ? 0 : index).toDouble();
+  }
 
   @override
   void initState() {
@@ -60,7 +66,12 @@ class _RedesignBottomNavState extends State<RedesignBottomNav>
         if (mounted) _attachPageScrollingListener();
       });
     }
-    if (oldWidget.currentIndex == widget.currentIndex) return;
+    if (!listEquals(oldWidget.destinations, widget.destinations)) {
+      _selectionController.stop();
+      _selectionAnimation = AlwaysStoppedAnimation<double>(_targetIndex);
+      return;
+    }
+    if (oldWidget.currentDestinationId == widget.currentDestinationId) return;
 
     if (_isPageScrolling) {
       _selectionController.stop();
@@ -99,7 +110,7 @@ class _RedesignBottomNavState extends State<RedesignBottomNav>
     final page = widget.pageController.page;
     if (page == null || !page.isFinite) return _targetIndex;
     return page
-        .clamp(0.0, (RedesignBottomNav._tabCount - 1).toDouble())
+        .clamp(0.0, (widget.destinations.length - 1).toDouble())
         .toDouble();
   }
 
@@ -150,43 +161,25 @@ class _RedesignBottomNavState extends State<RedesignBottomNav>
   @override
   Widget build(BuildContext context) {
     const indicatorSize = 4.0;
-    final items = [
-      (
-        label: context.l10n('nav.home', 'Home'),
-        activeIcon: AppIcons.home_filled,
-        inactiveIcon: AppIcons.home_outlined,
-        onLongPress: null,
-        onLongPressAt: null,
-      ),
-      (
-        label: context.l10n('nav.money', 'Money'),
-        activeIcon: AppIcons.account_balance_wallet,
-        inactiveIcon: AppIcons.account_balance_wallet_outlined,
-        onLongPress: widget.onMoneyLongPress,
-        onLongPressAt: null,
-      ),
-      (
-        label: context.l10n('nav.budget', 'Budget'),
-        activeIcon: AppIcons.savings,
-        inactiveIcon: AppIcons.savings_outlined,
-        onLongPress: null,
-        onLongPressAt: null,
-      ),
-      (
-        label: context.l10n('nav.shared', 'Shared'),
-        activeIcon: AppIcons.group,
-        inactiveIcon: AppIcons.group_outlined,
-        onLongPress: widget.onSharedLongPress,
-        onLongPressAt: null,
-      ),
-      (
-        label: context.l10n('nav.you', 'You'),
-        activeIcon: AppIcons.person,
-        inactiveIcon: AppIcons.person_outline,
-        onLongPress: null,
-        onLongPressAt: widget.onProfileLongPressAt,
-      ),
-    ];
+    final items = widget.destinations.map((id) {
+      final destination = NavigationDestinations.get(id);
+      return (
+        id: id,
+        label: destination.localizedLabel(context),
+        activeIcon: destination.activeIcon,
+        inactiveIcon: destination.inactiveIcon,
+        onLongPress: switch (destination.longPress) {
+          DestinationLongPress.quickCash => widget.onMoneyLongPress,
+          DestinationLongPress.quickAccessAccounts => widget.onSharedLongPress,
+          DestinationLongPress.profileMenu => null,
+          null => null,
+        },
+        onLongPressAt: destination.longPress == DestinationLongPress.profileMenu
+            ? widget.onProfileLongPressAt
+            : null,
+      );
+    }).toList(growable: false);
+    if (items.isEmpty) return const SizedBox.shrink();
 
     return AnimatedBuilder(
       animation: widget.pageController,
@@ -231,7 +224,7 @@ class _RedesignBottomNavState extends State<RedesignBottomNav>
                                 inactiveIcon: items[index].inactiveIcon,
                                 selectionProgress:
                                     _selectionProgress(page, index),
-                                onTap: () => widget.onTap(index),
+                                onTap: () => widget.onTap(items[index].id),
                                 onLongPress: items[index].onLongPress,
                                 onLongPressAt: items[index].onLongPressAt,
                               ),
